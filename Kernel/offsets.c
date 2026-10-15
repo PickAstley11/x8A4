@@ -234,5 +234,6 @@ int offsets_init(void) {
     x8A4_log_debug("koffsets_cached->io_aes_accel_special_keys: 0x%016llX\n", koffsets_cached->io_aes_accel_special_keys);
     x8A4_log_debug("koffsets_cached->io_aes_accel_special_keys_size: 0x%016llX\n", koffsets_cached->io_aes_accel_special_keys_size);
   }
-      return -1;
+  x8A4_log_debug("Kernel offsets initialized successfully.\n", "");
+  return 0;
 }
