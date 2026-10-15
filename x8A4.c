@@ -18,7 +18,9 @@
 #include <x8A4/Kernel/nvram.h>
 #include <x8A4/x8A4.h>
 #include <x8A4/Kernel/kpf.h>
-#include <libkrw.h>
+#include <x8A4/Kernel/krw_read.h>
+#include <x8A4_state.h>
+#include <stdlib.h>
 
 /* Cached Variables */
 int init_done = 0;
@@ -90,14 +92,6 @@ void x8A4_free(void) {
   xpf_free_fileset_sections();
   if (domains_cached) {
     free(domains_cached);
-  }
-  if (apple_mobile_ap_nonce_service2_cached != IO_OBJECT_NULL) {
-    x8A4_log_debug("Closing apple_mobile_ap_nonce_service2_cached\n", "");
-    IOServiceClose(apple_mobile_ap_nonce_service2_cached);
-  }
-  if(apple_mobile_ap_nonce_service_cached != IO_OBJECT_NULL) {
-    x8A4_log_debug("Releasing apple_mobile_ap_nonce_service_cached\n", "");
-    IOObjectRelease(apple_mobile_ap_nonce_service_cached);
   }
   if(kernel_path_cached) {
     free(kernel_path_cached);
@@ -171,6 +165,10 @@ const char *x8A4_version(void) {
  * @return          Pointer to nonce-seeds(uint8_t array)
  */
 uint8_t *x8A4_get_nonce_slots_os_dict(uint32_t *seeds_size, int slot_index) {
+  if (!seeds_size || slot_index < 0) {
+    x8A4_log_error("Invalid nonce slot output or index.\n", "");
+    return NULL;
+  }
   if(strcmp(gXPF.darwinVersion, "23.0.0") >= 0 && nonce_slot_format_cached == 1) {
   } else {
     return NULL;
@@ -181,8 +179,12 @@ uint8_t *x8A4_get_nonce_slots_os_dict(uint32_t *seeds_size, int slot_index) {
       return NULL;
     }
   }
-  if (!seeds_size) {
-    x8A4_log_error("Failed to get nonce-seeds, out seeds size pointer is NULL!\n", "");
+  int slot_count = x8A4_get_domain_count();
+  if (slot_count <= 0 || slot_index >= slot_count ||
+      !slots_cached[slot_index].nonce_slot_domain_descriptor) {
+    x8A4_log_error("Nonce slot index %d is out of range or has no descriptor.\n",
+                   slot_index);
+    return NULL;
   }
   uint64_t nvram_dict = get_service_nvram_dict(get_dtre_options());
   if (!nvram_dict) {
@@ -191,7 +193,11 @@ uint8_t *x8A4_get_nonce_slots_os_dict(uint32_t *seeds_size, int slot_index) {
   }
   uint8_t *nonce_seeds = NULL;
   char entry_str[20];
-  snprintf(entry_str, 20, "krn.%s", slots_cached[slot_index].nonce_slot_domain_descriptor->unique_string + 4);
+  char unique_string[sizeof(slots_cached[slot_index].nonce_slot_domain_descriptor->unique_string) + 1] = {0};
+  memcpy(unique_string,
+         slots_cached[slot_index].nonce_slot_domain_descriptor->unique_string,
+         sizeof(slots_cached[slot_index].nonce_slot_domain_descriptor->unique_string));
+  snprintf(entry_str, sizeof(entry_str), "krn.%s", unique_string + 4);
   if(strcmp(entry_str, "krn.c1ep") != 0 && strcmp(entry_str, "krn.pdmg") != 0) {
     nonce_seeds =
         get_nvram_entry_bytes(nvram_dict, entry_str, OS_DATA, seeds_size);
@@ -212,6 +218,7 @@ uint8_t *x8A4_get_nonce_slots_os_dict(uint32_t *seeds_size, int slot_index) {
 uint8_t *x8A4_get_nonce_seeds_os_dict(uint32_t *seeds_size) {
   if (!seeds_size) {
     x8A4_log_error("Failed to get nonce-seeds, out seeds size pointer is NULL!\n", "");
+    return NULL;
   }
   uint64_t nvram_dict = get_service_nvram_dict(get_dtre_options());
   if (!nvram_dict) {
@@ -260,7 +267,7 @@ uint8_t *x8A4_get_nonce_seeds_registry(uint32_t *seeds_size) {
 /**
  * @brief           Check if kernel is using nonce domains or nonce slots
  */
-void x8A4_set_nonce_format(void) {
+void x8A4_detect_nonce_format(void) {
   if(strcmp(gXPF.darwinVersion, "23.0.0") >= 0 && nonce_slot_format_cached == -1) {
     nonce_slot_format_cached = xpf_find_nonce_domains_array() ? 0 : 1;
   }
@@ -275,6 +282,10 @@ void x8A4_set_nonce_format(void) {
  */
 uint8_t *x8A4_get_domain_seed(uint8_t **nonce_seeds, uint32_t *seeds_size,
                               int domain_index) {
+  if (domain_index < 0) {
+    x8A4_log_error("Invalid nonce domain index.\n", "");
+    return NULL;
+  }
   if (!nonce_seeds) {
     x8A4_log_error("Failed to get nonce-seeds, out nonce seeds pointer to pointer is NULL!\n", "");
     return NULL;
@@ -295,6 +306,15 @@ uint8_t *x8A4_get_domain_seed(uint8_t **nonce_seeds, uint32_t *seeds_size,
       return NULL;
     }
   }
+  const uint32_t header_size = sizeof(struct x8A4_nonce_seeds_header);
+  if (*seeds_size < header_size ||
+      (*seeds_size - header_size) % sizeof(struct x8A4_nonce_seed) != 0 ||
+      (uint32_t)domain_index >=
+          (*seeds_size - header_size) / sizeof(struct x8A4_nonce_seed)) {
+    x8A4_log_error("Nonce domain index %d is outside the %u-byte seed data.\n",
+                   domain_index, *seeds_size);
+    return NULL;
+  }
   struct x8A4_nonce_seeds *nonce_seeds_struct = (struct x8A4_nonce_seeds *)*nonce_seeds;
   return (uint8_t *)(&nonce_seeds_struct->seeds[domain_index].seed[0]);
 }
@@ -308,6 +328,10 @@ uint8_t *x8A4_get_domain_seed(uint8_t **nonce_seeds, uint32_t *seeds_size,
  */
 uint8_t *x8A4_get_slot_seed(uint8_t **nonce_seeds, uint32_t *seeds_size,
                               int slot_index) {
+  if (slot_index < 0) {
+    x8A4_log_error("Invalid nonce slot index.\n", "");
+    return NULL;
+  }
   if (!nonce_seeds) {
     x8A4_log_error("Failed to get nonce-seeds, out nonce seeds pointer to pointer is NULL!\n", "");
     return NULL;
@@ -327,13 +351,24 @@ uint8_t *x8A4_get_slot_seed(uint8_t **nonce_seeds, uint32_t *seeds_size,
       x8A4_log_debug_error("Failed to get nonce-seeds! (%d)\n", slot_index);
       return NULL;
     }
+    if (*seeds_size < sizeof(struct x8A4_nonce_seeds_slot)) {
+      x8A4_log_error("Nonce slot data is shorter than one slot.\n", "");
+      return NULL;
+    }
     struct x8A4_nonce_seeds_slot *nonce_seeds_struct =
         (struct x8A4_nonce_seeds_slot *)*(uint64_t *)nonce_seeds;
     return (uint8_t *)(nonce_seeds_struct->seed.seed);
   } else {
+    if (*seeds_size % sizeof(struct x8A4_nonce_seeds_slot) != 0 ||
+        (uint32_t)slot_index >=
+            *seeds_size / sizeof(struct x8A4_nonce_seeds_slot)) {
+      x8A4_log_error("Nonce slot index %d is outside the %u-byte seed data.\n",
+                     slot_index, *seeds_size);
+      return NULL;
+    }
     struct x8A4_nonce_seeds_slot *nonce_seeds_struct =
-        (struct x8A4_nonce_seeds_slot *)nonce_seeds;
-    return (uint8_t *)(nonce_seeds_struct->seed.seed);
+        (struct x8A4_nonce_seeds_slot *)*nonce_seeds;
+    return (uint8_t *)nonce_seeds_struct[slot_index].seed.seed;
   }
 }
 
@@ -547,10 +582,11 @@ int x8A4_get_slot_slots_index(const char *entitlement) {
   }
   int slot_index = -1;
   for (int i = 0; i < slot_count; i++) {
-    const char *ent = slots[i].nonce_slot_domain_descriptor->entitlement;
-    if (!ent) {
+    if (!slots[i].nonce_slot_domain_descriptor ||
+        !slots[i].nonce_slot_domain_descriptor->entitlement) {
       continue;
     }
+    const char *ent = slots[i].nonce_slot_domain_descriptor->entitlement;
     x8A4_log_debug("Got ent: %s\n", ent);
     x8A4_log_debug("Got entitlement: %s\n", entitlement);
     if (strcmp(ent, entitlement) == 0) {
@@ -820,44 +856,6 @@ uint8_t *x8A4_get_cryptex_nonce(uint32_t *nonce_size) {
 }
 
 /**
- * @brief           Syncs nvram ram with a list of keys
- * @return          Zero on success
- */
-int x8A4_sync_nvram(void) {
-  const char *delete_me_key = "delete_me_key";
-  const char *delete_me_val = "delete_me_val";
-  int ret = 0;
-  const char *key_list[] = {
-      kBootNoncePropertyKey,
-      kNonceSeedsPropertyKey,
-      kKRNC1BTPropertyKey
-  };
-  for(int i = 0; i < 3; i++) {
-    ret = set_nvram_entry(get_dtre_options(), delete_me_key, delete_me_val);
-    if (ret) {
-      x8A4_log_error("Failed to sync nvram, set nvram(%s:%s) returned NULL!",
-                     delete_me_key, delete_me_val);
-      return -1;
-    }
-    ret = set_nvram_entry(get_dtre_options(), kIONVRAMDeletePropertyKey,
-                          delete_me_key);
-    if (ret) {
-      x8A4_log_error("Failed to sync nvram, set nvram(%s:%s) returned NULL!",
-                     kIONVRAMDeletePropertyKey, delete_me_key);
-      return -1;
-    }
-    ret = set_nvram_entry(get_dtre_options(), kIONVRAMForceSyncNowPropertyKey,
-                          key_list[i]);
-    if (ret) {
-      x8A4_log_error("Failed to sync nvram, set nvram(%s:%s) returned NULL!",
-                     kIONVRAMForceSyncNowPropertyKey, key_list[i]);
-      return -1;
-    }
-  }
-  return 0;
-}
-
-/**
  * @brief           Get boot-nonce OS dict variant
  * @param[out]      generator_size
  * @return          Pointer to boot-nonce(uint8_t array)
@@ -876,84 +874,6 @@ uint8_t *x8A4_get_boot_nonce_os_dict(uint32_t *generator_size) {
     x8A4_log_error("Failed to get boot-nonce!\n", "");
   }
   return boot_nonce;
-}
-
-/**
- * @brief           Set boot-nonce OS dict variant
- * @param[in]       generator
- * @param[out]      generator_size
- * @return
- */
-int x8A4_set_boot_nonce_os_dict(uint8_t *generator, uint32_t generator_size) {
-  if (!generator) {
-    x8A4_log_error("Failed to set boot-nonce, out generator pointer is NULL!\n", "");
-    return -1;
-  }
-  if (!generator_size) {
-    x8A4_log_error("Failed to set boot-nonce, out generator size pointer is NULL!\n", "");
-    return -1;
-  }
-  uint64_t nvram_dict = get_service_nvram_dict(get_dtre_options());
-  if (!nvram_dict) {
-    x8A4_log_error("Failed to get boot-nonce, nvram dict is NULL!\n", "");
-    return -1;
-  }
-  int ret = set_nvram_entry_bytes(nvram_dict, kBootNoncePropertyKey, generator, generator_size, OS_STRING);
-  if (ret) {
-    x8A4_log_error("Failed to set boot-nonce!\n", "");
-    return -1;
-  }
-  return 0;
-}
-
-/**
- * @brief           Set nonce-seeds OS dict variant
- * @param[in]       seed
- * @param[in]       domain_index
- * @return
- */
-int x8A4_set_nonce_seeds_os_dict(uint8_t *seed, int domain_index) {
-  if (!seed) {
-    x8A4_log_error("Failed to set nonce seed, seed is NULL!\n", "");
-    return -1;
-  }
-  uint64_t nvram_dict = get_service_nvram_dict(get_dtre_options());
-  if (!nvram_dict) {
-    x8A4_log_error("Failed to set nonce seed, nvram dict is NULL!\n", "");
-    return -1;
-  }
-  uint32_t seeds_size = 0;
-  uint8_t *nonce_seeds = NULL;
-  if(strcmp(gXPF.darwinVersion, "23.0.0") >= 0 && nonce_slot_format_cached == 1) {
-    nonce_seeds = get_nvram_entry_bytes(nvram_dict, kKRNC1BTPropertyKey,
-                                        OS_DATA, &seeds_size);
-  } else {
-    nonce_seeds = get_nvram_entry_bytes(nvram_dict, kNonceSeedsPropertyKey,
-                                        OS_DATA, &seeds_size);
-  }
-  if (!nonce_seeds) {
-    x8A4_log_error("Failed to get nonce-seeds!\n", "");
-  }
-  if(strcmp(gXPF.darwinVersion, "23.0.0") >= 0 && nonce_slot_format_cached == 1) {
-    struct x8A4_nonce_seeds_slot *slot = (struct x8A4_nonce_seeds_slot *)nonce_seeds;
-
-    memcpy(&slot->seed.seed, seed, 16);
-    int ret = set_nvram_entry_bytes(nvram_dict, kKRNC1BTPropertyKey, nonce_seeds, seeds_size, OS_DATA);
-    if (ret) {
-      x8A4_log_error("Failed to set nonce seed!\n", "");
-      return -1;
-    }
-  } else {
-    struct x8A4_nonce_seeds *seeds = (struct x8A4_nonce_seeds *)nonce_seeds;
-    memcpy(&seeds->seeds[domain_index].seed, seed, 16);
-    int ret = set_nvram_entry_bytes(nvram_dict, kNonceSeedsPropertyKey, nonce_seeds, seeds_size, OS_DATA);
-    if (ret) {
-      x8A4_log_error("Failed to set nonce seed!\n", "");
-      return -1;
-    }
-  }
-  x8A4_sync_nvram();
-  return 0;
 }
 
 /**
@@ -979,36 +899,6 @@ uint8_t *x8A4_get_boot_nonce_registry(uint32_t *generator_size) {
     x8A4_log_error("Failed to get boot-nonce!\n", "");
   }
   return generator;
-}
-
-/**
- * @brief           Set boot-nonce registry variant
- * @param[out]      generator
- * @return          Zero on success
- */
-int x8A4_set_boot_nonce_registry(uint8_t *generator) {
-  int ret = set_nvram_entry(get_dtre_options(), kBootNoncePropertyKey,
-                            (const char *)generator);
-  if(ret) {
-    if(verbose_cached)
-      x8A4_log_error("Failed to set nvram entry(%s)!\n", kBootNoncePropertyKey);
-    return -1;
-  }
-  ret = set_nvram_entry(get_dtre_options(), kIONVRAMSyncNowPropertyKey,
-                        kBootNoncePropertyKey);
-  if(ret) {
-    if(verbose_cached)
-      x8A4_log_error("Failed to set nvram entry(%s)!\n", kIONVRAMSyncNowPropertyKey);
-    return -1;
-  }
-  ret = set_nvram_entry(get_dtre_options(), kIONVRAMForceSyncNowPropertyKey,
-                        kBootNoncePropertyKey);
-  if(ret) {
-    if(verbose_cached)
-      x8A4_log_error("Failed to set nvram entry(%s)!\n", kIONVRAMForceSyncNowPropertyKey);
-    return -1;
-  }
-  return 0;
 }
 
 /**
@@ -1118,88 +1008,6 @@ uint8_t *x8A4_get_apnonce(uint32_t *apnonce_size) {
 }
 
 /**
- * @brief           Set apnonce generator
- * @param[in]       generator
- * @param[out]      generator_size
- * @return          Pointer to apnonce generator(uint8_t array)
- */
-uint8_t *x8A4_set_apnonce_generator(uint8_t *generator, uint32_t *generator_size) {
-  if (!generator || (strlen((char *)generator) < 16 || strlen((char *)generator) > 18)) {
-    x8A4_log_error("Failed to set apnonce generator, generator is invalid! (0x%016llX:%s)\n", generator, generator ? (char *)generator : "NULL");
-    return NULL;
-  }
-  if (!generator_size) {
-    x8A4_log_error("Failed to set apnonce generator, out generator size pointer is NULL!\n", "");
-    return NULL;
-  }
-  char generator_str[19];
-  generator_str[0] = '0';
-  generator_str[1] = 'x';
-  if(strlen((char *)generator) == 16 && (generator[0] != '0' && generator[1] != 'x')) {
-    strncpy(generator_str + 2, (char *)generator, 16);
-  } else if(strlen((char *)generator) == 18 && (generator[0] == '0' && generator[1] == 'x')) {
-    strncpy(generator_str, (char *)generator, 18);
-  } else {
-    x8A4_log_error("Failed to set apnonce generator, generator is invalid! (0x%016llX:%s)\n", generator, generator ? (char *)generator : "NULL");
-    return NULL;
-  }
-  uint8_t *generator2 = (uint8_t *)generator_str;
-  if (io_clear_apnonce()) {
-x8A4_log_error("Failed to clear current apnonce generator!\n", "");
-    return NULL;
-  }
-  if (io_generate_apnonce()) {
-x8A4_log_error("Failed to generate new apnonce generator!\n", "");
-    return NULL;
-  }
-  uint32_t tmp_generator_size = *generator_size;
-  int ret = x8A4_set_boot_nonce_registry(generator2);
-  if(ret) {
-    if(verbose_cached)
-      x8A4_log_error("Failed to set apnonce generator in registry, retrying with os-dict!\n", "");
-    ret = x8A4_set_boot_nonce_os_dict(generator2, strlen((const char *)generator2) + 1);
-    if(ret) {
-      x8A4_log_error("Failed to set apnonce generator in os-dict!\n", "");
-      *generator_size = 0;
-      return NULL;
-    }
-  }
-  ret = x8A4_sync_nvram();
-  if(ret) {
-x8A4_log_error("Failed to set sync nvram!\n", "");
-    *generator_size = 0;
-    return NULL;
-  }
-  generator2 = x8A4_get_boot_nonce_registry(generator_size);
-  if (!generator2 || !*generator_size) {
-    generator2 = x8A4_get_boot_nonce_os_dict(generator_size);
-    if (!generator2 || !*generator_size) {
-      x8A4_log_error("Failed to set apnonce generator!\n", "");
-      *generator_size = 0;
-      return NULL;
-    }
-  }
-  *generator_size = tmp_generator_size;
-  return generator;
-}
-
-/**
- * @brief           Clears the apnonce generator
- * @return          Zero on success
- */
-int x8A4_clear_apnonce_generator(void) {
-  if (io_clear_apnonce()) {
-    x8A4_log_error("Failed to clear current apnonce generator!\n", "");
-    return -1;
-  }
-  if(x8A4_sync_nvram()) {
-    x8A4_log_error("Failed to set sync nvram!\n", "");
-    return -2;
-  }
-  return 0;
-}
-
-/**
  * @brief           Get IOAESAccelerator Keys
  * @param[out]      keys_count
  * @return          Pointer to keys(x8A4_accel_key array)
@@ -1253,139 +1061,12 @@ void x8A4(void) {
 
 }
 
-#if 0
-/**
- * @brief           x8A4 main library function
- */
-void x8A4(void) {
-  x8A4_log_debug("x8A4!\n", "");
-//  uint32_t generator_size = 0;
-//  uint8_t *generator = x8A4_get_apnonce_generator(&generator_size, nvram_udid);
-//  if (!generator) {
-//    x8A4_log_error("!generator\n", "");
-//  } else {
-//    x8A4_log_debug("boot-nonce(apnonce generator): %s\n", generator);
-//  }
-//  const char *new_nonce = "0x6969696969696969";
-//  uint32_t new_nonce_size = strlen(new_nonce);
-//  x8A4_log_debug("Setting boot-nonce(apnonce generator): %s\n", new_nonce);
-//  generator = x8A4_set_apnonce_generator((uint8_t *)new_nonce, &new_nonce_size);
-//  if (!generator) {
-//    x8A4_log_error("!generator\n", "");
-//  } else {
-//    x8A4_log_debug("boot-nonce(apnonce generator): %s\n", generator);
-//  }
-  uint64_t kobject = get_ipc_kobject(get_io_aes_accel_service());
-  if (!kobject) {
-    x8A4_log_error("Failed to get kobject from IOAESAccelerator service!\n", "");
-    return;
-  }
-  uint64_t keys = 0;
-  x8A4_log_debug("kobject: 0x%016llX\n", kobject);
-  x8A4_log_debug("kobject + koffsets_cached->io_aes_accel_special_keys: 0x%016llX\n", kobject + koffsets_cached->io_aes_accel_special_keys);
-  if (kread(kobject + koffsets_cached->io_aes_accel_special_keys, &keys, 8) ||
-      keys == 0) {
-    x8A4_log_error("Failed to read io_aes_accel_special_keys from kobject: 0x%llX!\n", kobject);
-    return;
-  }
-  size_t keys_count = 0;
-  x8A4_log_debug("kobject + koffsets_cached->io_aes_accel_special_keys_size: 0x%016llX\n", kobject + koffsets_cached->io_aes_accel_special_keys_size);
-  if (kread(kobject + koffsets_cached->io_aes_accel_special_keys_size,
-            &keys_count, 8) ||
-      keys_count == 0) {
-    x8A4_log_error("Failed to read io_aes_accel_special_keys_size from kobject: 0x%llX!\n", kobject);
-    return;
-  }
-  size_t struct_size = sizeof(struct x8A4_accel_key);
-  struct x8A4_accel_key *out_keys = (struct x8A4_accel_key *)calloc(keys_count, struct_size);
-  x8A4_log_debug("keys: 0x%llX keys count: %zu\n", keys, keys_count);
-  for (int i = 0; i < keys_count; i++) {
-    struct x8A4_accel_key *cur_key = out_keys + (struct_size * i);
-    if (kread(keys + (struct_size * i), cur_key, struct_size)) {
-      x8A4_log_error("Failed to read special key: %d from keys: 0x%llX!\n", i, keys);
-    }
-    //        if(cur_key->key_id == 0x8A4) {
-    x8A4_log_debug("cur_key index: 0x%X\n", i);
-    x8A4_log_debug("cur_key->generated: 0x%X\n", cur_key->generated);
-    x8A4_log_debug("cur_key->key_id: 0x%X\n", cur_key->key_id);
-    x8A4_log_debug("cur_key->key_sz: 0x%X\n", cur_key->key_sz);
-    x8A4_log_debug("cur_key->key: 0x%08X%08X%08X%08X%\n", __builtin_bswap32(cur_key->key[0]), __builtin_bswap32(cur_key->key[1]), __builtin_bswap32(cur_key->key[2]), __builtin_bswap32(cur_key->key[3]));
-    x8A4_log_debug("cur_key->iv: 0x%08X%08X%08X%08X\n", __builtin_bswap32(cur_key->iv[0]), __builtin_bswap32(cur_key->iv[1]), __builtin_bswap32(cur_key->iv[2]), __builtin_bswap32(cur_key->iv[3]));
-    x8A4_log_debug("cur_key->zero: 0x%X\n", cur_key->zero);
-    x8A4_log_debug("cur_key->pad: 0x%X\n", cur_key->pad);
-    //        }
-  }
-  if (out_keys) {
-    free(out_keys);
-  }
-
-//  uint64_t nvram_dict = get_service_nvram_dict(get_dtre_options());
-//  if (!nvram_dict) {
-//    x8A4_log_error("!nvram_dict\n", "");
-//    return;
-//  }
-//
-//  //    size_t sz = strlen("0x") + 0x10;
-//  uint8_t *nonce_seeds = NULL;
-//  uint8_t **nonce_seeds_ptr = &nonce_seeds;
-//  uint32_t seeds_size = 0;
-//  uint8_t *cryptex_seed =
-//      x8A4_get_cryptex_seed(nonce_seeds_ptr, &seeds_size);
-//  x8A4_log_debug("seeds_size: 0x%X\n", seeds_size);
-//  if (!cryptex_seed) {
-//    x8A4_log_error("!cryptex_seed\n", "");
-//  } else {
-//    x8A4_log_debug("cryptex seed: 0x", "");
-//    for (int i = 0; i < 16; i++) {
-//      fflush(stdout);
-//      x8A4_log("%02X", *(cryptex_seed + i));
-//    }
-//    x8A4_log("\n", "");
-//    fflush(stdout);
-//  }
-//  if (!nonce_seeds) {
-//    x8A4_log_error("!nonce_seeds\n", "");
-//  } else {
-//    x8A4_log_debug("nonce_seeds: 0x", "");
-//    for (int i = 0; i < seeds_size; i++) {
-//      fflush(stdout);
-//      aprintf(stdout, "%02X", *(nonce_seeds + i));
-//    }
-//    aprintf(stdout, "\n");
-//    fflush(stdout);
-//  }
-
-//      char *new_key = calloc(1, key_len + UDID_LEN + 1);
-//      x8A4_log_debug("nvram_udid: %s\n", nvram_udid);
-//      snprintf(new_key, key_len + UDID_LEN + 1, "%s%s", nvram_udid, key);
-//      set_nvram_entry_bytes(nvram_dict, new_key, (uint8_t
-//      *)"0x6969696969696969", sz, nonce_type);
-//      set_nvram_entry_bytes(nvram_dict, new_key, (uint8_t *)seeds_bin, sz,
-//      nonce_seeds_type);
-
-  //    nonce_seeds = get_nvram_entry_bytes(nvram_dict, new_key, sz, 0);
-  //    if(!nonce_seeds) {
-  //        x8A4_log_error("!nonce_seeds\n", "");
-  //        return;
-  //    }
-  //    x8A4_log_debug("new nonce_seeds: %s\n", nonce_seeds);
-  //    uint8_t *cryptex_seed = x8A4_get_cryptex_seed();
-  //    x8A4_log_debug("cryptex seed: 0x", "");
-  //    for(int i = 0; i < 16; i++) {
-  //        fflush(stdout);
-  //        aprintf(stdout, "%02X", *(cryptex_seed + i));
-  //    }
-  //    aprintf(stdout, "\n");
-  //    fflush(stdout);
-}
-#endif
 
 /**
- * @brief           CLI set program verbose
+ * @brief           Enable verbose logging for this process
  */
-void x8A4_cli_set_verbose(void) {
+void x8A4_cli_enable_verbose(void) {
   verbose_cached = 1;
-  setenv("LIBKRW_LOG", "1", 0);
 }
 
 /**
@@ -1487,39 +1168,6 @@ void x8A4_cli_get_apnonce(void) {
 }
 
 /**
- * @brief           CLI set apnonce generator
- * @param[in]       new_generator
- */
-void x8A4_cli_set_apnonce_generator(const char *new_generator) {
-  uint32_t new_generator_size = strlen(new_generator);
-  uint32_t out_generator_size = new_generator_size;
-  if(new_generator_size >= 16) {
-    x8A4_log("Setting apnonce generator(%s)...\n", new_generator);
-    uint8_t *generator = x8A4_set_apnonce_generator((uint8_t *)new_generator, &out_generator_size);
-    if(generator && new_generator_size == out_generator_size && memcmp(new_generator, generator, new_generator_size) == 0) {
-      x8A4_log("Done!\n", "");
-      x8A4_log("Successfully set apnonce generator(%s)!\n", generator);
-    } else {
-      x8A4_log_error("Failed to set apnonce generator(%s), set(%s)!\n", new_generator, (generator) ? (const char *)generator : "NULL");
-    }
-  }
-}
-
-/**
- * @brief           CLI clear apnonce generator
- */
-void x8A4_cli_clear_apnonce_generator(void) {
-  x8A4_log("Clearing apnonce generator...\n", "");
-  int ret = x8A4_clear_apnonce_generator();
-  if(!ret) {
-    x8A4_log("Done!\n", "");
-    x8A4_log("Successfully cleared apnonce generator!\n", "");
-  } else {
-    x8A4_log_error("Failed to clear apnonce generator!\n", "");
-  }
-}
-
-/**
  * @brief           CLI get IOAESAccelerator keys
  * @param[in]       chosen_key
  */
@@ -1585,54 +1233,4 @@ void x8A4_cli_get_nonce_seeds(void) {
       x8A4_log(")\n", "");
       fflush(stdout);
     }
-}
-
-/**
- * @brief           CLI set cryptex seed
- * @param[in]       new_seed
- */
-void x8A4_cli_set_cryptex_seed(const char *new_seed) {
-  x8A4_log("Setting cryptex seed(%s)...\n", new_seed);
-  if(!new_seed) {
-    return;
-  }
-  if(strlen(new_seed) < 32) {
-    return;
-  }
-  char seed_str[35];
-  char seed_str2[35];
-  seed_str2[0] = '0';
-  seed_str2[1] = 'x';
-  if(strlen(new_seed) == 34 && (new_seed[0] == '0' && new_seed[1] == 'x')) {
-    strncpy(seed_str, new_seed, 18);
-    strncpy(seed_str2 + 2, new_seed + 18, 16);
-  } else if(strlen(new_seed) == 32 && (new_seed[0] != '0' && new_seed[1] != 'x')) {
-    strncpy(seed_str + 2, new_seed, 16);
-    strncpy(seed_str2 + 2, new_seed + 18, 16);
-  } else {
-    return;
-  }
-  uint64_t seed[2];
-  seed[0] = strtoull(seed_str, NULL, 0);
-  seed[1] = strtoull(seed_str2, NULL, 0);
-  if((!seed[0] || seed[0] == ~(uint64_t)0) || !seed[1] || seed[1] == ~(uint64_t)0) {
-    return;
-  }
-  seed[0] = __builtin_bswap64(seed[0]);
-  seed[1] = __builtin_bswap64(seed[1]);
-  int cryptex_boot_index = 0;
-  if(strcmp(gXPF.darwinVersion, "23.0.0") >= 0 && nonce_slot_format_cached == 1) {
-    cryptex_boot_index = x8A4_get_cryptex_boot_slot_slots_index();
-  } else {
-    cryptex_boot_index = x8A4_get_cryptex_boot_domain_index();
-  }
-  if(cryptex_boot_index == -1) {
-    return;
-  }
-  if(x8A4_set_nonce_seeds_os_dict((uint8_t *)seed, cryptex_boot_index)) {
-    x8A4_log_error("Failed to set cryptex seed(%s)!\n", new_seed);
-    return;
-  }
-  x8A4_log("Done!\n", "");
-  x8A4_log("Successfully set cryptex seed(%s)!\n", new_seed);
 }

@@ -103,7 +103,7 @@ struct x8A4_nonce_seeds_slot {
 } __attribute__((packed, aligned(1)));
 
 /* Defines */
-#define X8A4_API_VERSION "1.0.1"
+#define X8A4_API_VERSION "1.0.2"
 #define X8A4_ABI_VERSION SOVERSION
 
 /* Prototypes */
@@ -115,7 +115,6 @@ const char *x8A4_version(void);
 uint8_t *x8A4_get_nonce_slots_os_dict(uint32_t *seeds_size, int slot_index);
 uint8_t *x8A4_get_nonce_seeds_os_dict(uint32_t *seeds_size);
 uint8_t *x8A4_get_nonce_seeds_registry(uint32_t *seeds_size);
-void x8A4_set_nonce_format(void);
 uint8_t *x8A4_get_slot_seed(uint8_t **nonce_seeds, uint32_t *seeds_size, int slot_index);
 uint8_t *x8A4_get_domain_seed(uint8_t **nonce_seeds, uint32_t *seeds_size, int domain_index);
 struct x8A4_nonce_slot *x8A4_get_nonce_slots_list(void);
@@ -128,41 +127,18 @@ int x8A4_get_cryptex_boot_domain_index(void);
 uint8_t *x8A4_get_nonce_seeds(uint32_t *seeds_size);
 uint8_t *x8A4_get_cryptex_seed(uint8_t **nonce_seeds, uint32_t *seeds_size);
 uint8_t *x8A4_get_cryptex_nonce(uint32_t *nonce_size);
-int x8A4_sync_nvram(void);
 uint8_t *x8A4_get_boot_nonce_os_dict(uint32_t *generator_size);
-int x8A4_set_boot_nonce_os_dict(uint8_t *generator, uint32_t generator_size);
-int x8A4_set_nonce_seeds_os_dict(uint8_t *seed, int domain_index);
 uint8_t *x8A4_get_boot_nonce_registry(uint32_t *generator_size);
-int x8A4_set_boot_nonce_registry(uint8_t *generator);
 uint8_t *x8A4_get_apnonce_generator(uint32_t *generator_size);
 uint8_t *x8A4_get_apnonce(uint32_t *apnonce_size);
-uint8_t *x8A4_set_apnonce_generator(uint8_t *generator, uint32_t *generator_size);
-int x8A4_clear_apnonce_generator(void);
 struct x8A4_accel_key *x8A4_get_ioaesaccelkeys(uint32_t *keys_count);
 void x8A4(void);
-void x8A4_cli_set_verbose(void);
+void x8A4_cli_enable_verbose(void);
 void x8A4_cli_get_cryptex_seed(void);
 void x8A4_cli_get_cryptex_nonce(void);
 void x8A4_cli_get_apnonce_generator(void);
 void x8A4_cli_get_apnonce(void);
-void x8A4_cli_set_apnonce_generator(const char *new_generator);
-void x8A4_cli_clear_apnonce_generator(void);
 void x8A4_cli_get_accel_keys(uint32_t chosen_key);
 void x8A4_cli_get_nonce_seeds(void);
-void x8A4_cli_set_cryptex_seed(const char *new_seed);
-
-/* Cached Variables */
-extern int init_done;
-extern struct x8A4_nonce_domain *domains_cached;
-extern struct x8A4_nonce_slot *slots_cached;
-extern int nonce_slot_format_cached;
-extern int domains_count_cached;
-extern int cryptex_domains_index_cached;
-extern int cryptex_index_cached;
-extern int verbose_cached;
-extern uint64_t *gc_cached;
-extern int gc_count_cached;
-extern uint64_t *gc_d_cached;
-extern int gc_d_count_cached;
 
 #endif//X8A4_X8A4_H

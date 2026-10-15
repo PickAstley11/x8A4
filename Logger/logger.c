@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <x8A4/Logger/logger.h>
 #include <x8A4/x8A4.h>
+#include <x8A4_state.h>
 
 /* Functions */
 /**

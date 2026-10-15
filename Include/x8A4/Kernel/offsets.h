@@ -18,13 +18,6 @@
 /* Include headers */
 #include <stdint.h>
 
-/* Enum Variables */
-enum apple_mobile_apnonce_external_selectors {
-  APPLE_MOBILE_AP_NONCE_GENERATE_NONCE_SEL = 0xC8,
-  APPLE_MOBILE_AP_NONCE_CLEAR_NONCE_SEL = 0xC9,
-  APPLE_MOBILE_AP_NONCE_RETRIEVE_NONCE_SEL = 0xCA,
-};
-
 /* Structure Variables */
 struct kernel_offsets {
   uint64_t proc_pid;

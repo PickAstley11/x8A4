@@ -13,8 +13,7 @@
  */
 
 /* Include headers */
-#include <libkrw.h>
-#include <sys/mount.h>
+#include <x8A4/Kernel/krw_read.h>
 #include <x8A4/Kernel/kernel.h>
 #include <x8A4/Kernel/offsets.h>
 #include <x8A4/Kernel/slide.h>
@@ -22,6 +21,8 @@
 #include <x8A4/Registry/registry.h>
 #include <x8A4/Logger/logger.h>
 #include <x8A4/x8A4.h>
+#include <x8A4_state.h>
+#include <string.h>
 
 /* Cached Variables */
 char *kernel_path_cached = NULL;
@@ -72,7 +73,7 @@ int xpf_init(void) {
     x8A4_log_error("Can't proceed with kernel init, failed to start xpf with kernel: \"%s\" error: %s\n", get_kernel_path(), err);
   }
   if(!ret) {
-    x8A4_set_nonce_format();
+    x8A4_detect_nonce_format();
   }
   return ret;
 }
@@ -126,96 +127,7 @@ const char *get_kernel_path(void) {
   kernel_path_cached = kernel_path;
   return (const char *)kernel_path;
 }
-#if 0
-/**
- * @brief           Reads mntinfo firmware entry to find preboot kernel path
- * @return          Kernel path
- */
-const char *get_kernel_path_legacy2(void) {
-  if (kernel_path_cached) {
-    return kernel_path_cached;
-  }
-  const char *preboot_path = "/private/preboot/";
-  if (access(preboot_path, F_OK) != 0) {
-    x8A4_log_error("Can't proceed with kernel init, %s not found!\n", preboot_path);
-    return NULL;
-  }
 
-  int mnt_size = 0;
-  struct statfs *mnt_buf = NULL;
-  mnt_size = getmntinfo(&mnt_buf, MNT_NOWAIT);
-  char *preboot_path_hash = NULL;
-  for (int i = 0; i < mnt_size; i++) {
-    if (strcmp(mnt_buf[i].f_mntonname, "/usr/standalone/firmware") == 0) {
-      void *mnt_off = &mnt_buf[i].f_mntfromname;
-      void *end_off =
-          strstr(mnt_buf[i].f_mntfromname, "/usr/standalone/firmware");
-      if (end_off) {
-        preboot_path_hash = mnt_buf[i].f_mntfromname;
-        preboot_path_hash[end_off - mnt_off] = '\0';
-      }
-      break;
-    }
-  }
-  if (!preboot_path_hash) {
-    x8A4_log_error("Failed to get preboot path boot_manifest_hash!\n", "");
-    return NULL;
-  }
-
-  const char *format = "%s/System/Library/Caches/"
-                       "com.apple.kernelcaches/kernelcache";
-  char *kernel_path = (char *)calloc(1, 256);
-  snprintf(kernel_path, 256, format, preboot_path_hash);
-  kernel_path_cached = kernel_path;
-  return (const char *)kernel_path;
-}
-
-/**
- * @brief           Reads active preboot to find kernel path
- * @return          Kernel path
- */
-const char *get_kernel_path_legacy(void) {
-  if (kernel_path_cached) {
-    return kernel_path_cached;
-  }
-  const char *active_path = "/private/preboot/active";
-  if (access(active_path, F_OK) != 0) {
-    fprintf(stderr, "[-]: %s: Can't proceed with kernel init, %s not found!\n",
-            __FUNCTION__, active_path);
-    return NULL;
-  }
-  FILE *active_file = fopen(active_path, "r");
-  if (active_file == NULL) {
-    fprintf(stderr, "[-]: %s: Failed to open file %s!\n", __FUNCTION__,
-            active_path);
-    return NULL;
-  }
-  size_t active_file_size;
-  fseek(active_file, 0, SEEK_END);
-  active_file_size = ftell(active_file);
-  if (active_file_size == 0) {
-    fprintf(stderr, "[-]: %s: File %s is somehow empty!\n", __FUNCTION__,
-            active_path);
-    fclose(active_file);
-    return NULL;
-  }
-  fseek(active_file, 0, SEEK_SET);
-  char *hash = (char *)calloc(1, active_file_size + 1);
-  size_t ret = fread(hash, 1, active_file_size, active_file);
-  fclose(active_file);
-  if (ret != active_file_size) {
-    fprintf(stderr, "[-]: %s Only read %zu bytes from %s!\n", __FUNCTION__, ret,
-            active_path);
-    return NULL;
-  }
-  const char *format = "/private/preboot/%s/System/Library/Caches/"
-                       "com.apple.kernelcaches/kernelcache";
-  char *kernel_path = (char *)calloc(1, PATH_MAX);
-  snprintf(kernel_path, PATH_MAX, format, hash);
-  kernel_path_cached = kernel_path;
-  return (const char *)kernel_path;
-}
-#endif
 
 /**
  * @brief           Kernel kread wrapper for reading from SMR pointers
@@ -268,24 +180,39 @@ uint64_t get_our_proc(void) {
   if (our_proc_cached) {
     return our_proc_cached;
   }
+  if (!koffsets_cached || !koffsets_cached->all_proc ||
+      !koffsets_cached->t1sz_boot) {
+    x8A4_log_error("Kernel process offsets are not initialized!\n", "");
+    return 0;
+  }
   pid_t our_pid = getpid();
   pid_t pid = 0;
   uint64_t proc = koffsets_cached->all_proc + get_slide();
-  bool found = false;
-  while (!kread(proc + koffsets_cached->proc_list_next, (void *)&proc, 8)) {
-    int ret = kread(proc + koffsets_cached->proc_pid, (void *)&pid, 4);
-    if (ret) {
-      continue;
-    }
-    if (pid == our_pid) {
-      found = true;
+  /* Bound traversal so a damaged list cannot hang x8A4 indefinitely. */
+  for (uint32_t visited = 0; visited < 0x10000; visited++) {
+    uint64_t next_proc = 0;
+    int ret = kread(proc + koffsets_cached->proc_list_next, &next_proc,
+                    sizeof(next_proc));
+    if (ret || !next_proc) {
       break;
     }
+    unsign_ptr(&next_proc);
+    if (!next_proc || next_proc == proc) {
+      break;
+    }
+    proc = next_proc;
+    ret = kread(proc + koffsets_cached->proc_pid, &pid, sizeof(pid));
+    if (ret) {
+      x8A4_log_error("Failed to read pid from kernel proc list! (%d)\n", ret);
+      break;
+    }
+    if (pid == our_pid) {
+      our_proc_cached = proc;
+      return our_proc_cached;
+    }
   }
-  if (!found) {
-    x8A4_log_error("Failed to find ourproc in kernel allproc!\n", "");
-  }
-  return found ? proc : 0;
+  x8A4_log_error("Failed to find ourproc in kernel allproc!\n", "");
+  return 0;
 }
 
 /**
@@ -520,69 +447,3 @@ int kernel_test(void) {
   return 0;
 }
 #endif
-
-/**
- * @brief           Generates a new apnonce and generator via AppleMobileApNonce UserClient
- * @return          Zero on success
- */
-int io_generate_apnonce(void) {
-  io_service_t apnonce_service = get_apple_mobile_ap_nonce_service();
-  if (MACH_PORT_VALID(apnonce_service) == 0) {
-    x8A4_log_error("Port 0x%X for apnonce service is invalid!\n", apnonce_service);
-    return -1;
-  }
-  uint8_t nonce[CC_SHA384_DIGEST_LENGTH];
-  size_t nonce_size = CC_SHA384_DIGEST_LENGTH;
-  kern_return_t ret = IOConnectCallStructMethod(
-      apnonce_service, APPLE_MOBILE_AP_NONCE_GENERATE_NONCE_SEL, NULL, 0, nonce,
-      &nonce_size);
-  if (ret != KERN_SUCCESS) {
-    x8A4_log_error("!IOConnectCallStructMethod APPLE_MOBILE_AP_NONCE_GENERATE_NONCE_SEL 0x%08X(%s)", ret, mach_error_string(ret));
-    return -1;
-  }
-  if (options_cached) {
-    IOObjectRelease(options_cached);
-    options_cached = IO_OBJECT_NULL;
-  }
-  if (apple_mobile_ap_nonce_service2_cached) {
-    IOServiceClose(apple_mobile_ap_nonce_service2_cached);
-    apple_mobile_ap_nonce_service2_cached = IO_OBJECT_NULL;
-  }
-  if (apple_mobile_ap_nonce_service_cached) {
-    IOObjectRelease(apple_mobile_ap_nonce_service_cached);
-    apple_mobile_ap_nonce_service_cached = IO_OBJECT_NULL;
-  }
-  return 0;
-}
-
-/**
- * @brief           Clears the apnonce and generator via AppleMobileApNonce UserClient
- * @return          Zero on success
- */
-int io_clear_apnonce(void) {
-  io_service_t apnonce_service = get_apple_mobile_ap_nonce_service();
-  if (MACH_PORT_VALID(apnonce_service) == 0) {
-    x8A4_log_error("Port 0x%08X for apnonce service is invalid!\n", apnonce_service);
-    return -1;
-  }
-  kern_return_t ret = IOConnectCallStructMethod(
-      apnonce_service, APPLE_MOBILE_AP_NONCE_CLEAR_NONCE_SEL, NULL, 0, NULL,
-      NULL);
-  if (ret != KERN_SUCCESS) {
-    x8A4_log_error("Failed IOConnectCallStructMethod APPLE_MOBILE_AP_NONCE_CLEAR_NONCE_SEL! (0x%08:X%s)", ret, mach_error_string(ret));
-    return -1;
-  }
-  if (options_cached) {
-    IOObjectRelease(options_cached);
-    options_cached = IO_OBJECT_NULL;
-  }
-  if (apple_mobile_ap_nonce_service2_cached) {
-    IOServiceClose(apple_mobile_ap_nonce_service2_cached);
-    apple_mobile_ap_nonce_service2_cached = IO_OBJECT_NULL;
-  }
-  if (apple_mobile_ap_nonce_service_cached) {
-    IOObjectRelease(apple_mobile_ap_nonce_service_cached);
-    apple_mobile_ap_nonce_service_cached = IO_OBJECT_NULL;
-  }
-  return 0;
-}

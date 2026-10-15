@@ -13,7 +13,7 @@
  */
 
 /* Include headers */
-#include <libkrw.h>
+#include <x8A4/Kernel/krw_read.h>
 #include <x8A4/Kernel/kernel.h>
 #include <x8A4/Kernel/offsets.h>
 #include <x8A4/Kernel/osobject.h>
@@ -76,7 +76,8 @@ uint32_t get_os_dict_size(uint64_t dict) {
     return 0;
   }
   uint32_t dict_size = 0;
-  int ret = kread(dict + koffsets_cached->os_dict_size, &dict_size, 8);
+  int ret = kread(dict + koffsets_cached->os_dict_size, &dict_size,
+                  sizeof(dict_size));
   if (ret || !dict_size) {
     x8A4_log_error("Failed to read kernel os dict size from os dict! (%d:0x%08X)\n", ret, dict_size);
     return 0;
@@ -118,8 +119,7 @@ uint64_t get_entry_from_os_dict(uint64_t dict, enum os_type entry_type,
     x8A4_log_error("Failed to get entry from os dict, entry key is NULL!\n", "");
     return 0;
   }
-  size_t entry_key_len = strlen(entry_key) + 1;
-  if (!entry_key_len) {
+  if (!entry_key[0]) {
     x8A4_log_error("Failed to get entry from os dict, entry key is empty!\n", "");
     return 0;
   }
@@ -128,15 +128,15 @@ uint64_t get_entry_from_os_dict(uint64_t dict, enum os_type entry_type,
     x8A4_log_error("Failed to get entry from os dict, os dict entry is zero!\n", "");
     return 0;
   }
-  uint64_t os_dict_size = get_os_dict_size(dict);
-  if (!os_dict_size) {
+  uint32_t os_dict_size = get_os_dict_size(dict);
+  if (!os_dict_size || os_dict_size > 0x10000) {
     x8A4_log_error("Failed to get entry from os dict, os dict size is zero!\n", "");
     return 0;
   }
   int ret;
   uint64_t data = 0;
   struct os_dict_entry current_entry = {0};
-  for (int i = 0; i < os_dict_size + 1; i++) {
+  for (uint32_t i = 0; i < os_dict_size; i++) {
     ret = kread(os_dict_entry + (i * sizeof(struct os_dict_entry)),
                 &current_entry, sizeof(struct os_dict_entry));
     if (ret || !current_entry.key) {
@@ -152,11 +152,15 @@ uint64_t get_entry_from_os_dict(uint64_t dict, enum os_type entry_type,
     if (!key) {
       continue;
     }
-    char key_string[PATH_MAX];
+    char key_string[PATH_MAX] = {0};
+    if (key_len >= sizeof(key_string)) {
+      continue;
+    }
     ret = kread(key, key_string, key_len);
     if (ret || key_string[0] == '\0') {
       continue;
     }
+    key_string[key_len] = '\0';
     if (strcmp(key_string, entry_key) == 0) {
       data = os_object_cast(current_entry.val, entry_type);
       if (!data) {
@@ -173,5 +177,45 @@ uint64_t get_entry_from_os_dict(uint64_t dict, enum os_type entry_type,
     }
   }
   x8A4_log_debug_error("Failed to to find entry %s in os dict!\n", entry_key);
+  return 0;
+}
+
+/* Return 1 when a key exists, 0 when it does not, and -1 if it cannot be
+ * checked safely. This is used before creating temporary NVRAM properties. */
+int os_dict_contains_key(uint64_t dict, const char *entry_key) {
+  if (!dict || !entry_key || !entry_key[0]) {
+    return -1;
+  }
+  uint64_t entries = get_os_dict_from_os_object(dict);
+  uint32_t count = get_os_dict_size(dict);
+  if (!entries || !count || count > 0x10000) {
+    return -1;
+  }
+  for (uint32_t i = 0; i < count; i++) {
+    struct os_dict_entry entry = {0};
+    if (kread(entries + (i * sizeof(entry)), &entry, sizeof(entry))) {
+      return -1;
+    }
+    if (!entry.key) {
+      continue;
+    }
+    uint32_t key_size = get_os_metabase_size(entry.key);
+    extract_os_size(&key_size);
+    if (!key_size || key_size >= PATH_MAX) {
+      return -1;
+    }
+    uint64_t key = os_object_cast(entry.key, OS_STRING);
+    if (!key) {
+      return -1;
+    }
+    char key_string[PATH_MAX] = {0};
+    if (kread(key, key_string, key_size)) {
+      return -1;
+    }
+    key_string[key_size] = '\0';
+    if (strcmp(key_string, entry_key) == 0) {
+      return 1;
+    }
+  }
   return 0;
 }

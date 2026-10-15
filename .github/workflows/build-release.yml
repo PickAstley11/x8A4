@@ -1,0 +1,101 @@
+name: Build x8A4 packages
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install build tools
+        run: brew install cmake dpkg ldid-procursus
+
+      - name: Configure universal iOS build
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          -DCMAKE_OSX_ARCHITECTURES="arm64;arm64e"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+          -DRELEASE=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Verify universal binaries
+        run: |
+          lipo build/libx8A4.1.dylib -verify_arch arm64
+          lipo build/libx8A4.1.dylib -verify_arch arm64e
+          lipo build/x8A4_CLI -verify_arch arm64
+          lipo build/x8A4_CLI -verify_arch arm64e
+
+      - name: Verify read-only imports and library exports
+        run: scripts/check_read_only_symbols.sh build/libx8A4.1.dylib build/x8A4_CLI
+
+      - name: Determine package version
+        id: version
+        shell: bash
+        run: |
+          source_version="$(sed -n 's/^#define X8A4_API_VERSION "\([^"]*\)"/\1/p' Include/x8A4/x8A4.h)"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ "$version" != "$source_version" ]]; then
+              echo "Release tag $GITHUB_REF_NAME does not match X8A4_API_VERSION $source_version" >&2
+              exit 1
+            fi
+          else
+            version="${source_version}+git${GITHUB_SHA::7}"
+          fi
+          if [[ -z "$version" || "$version" =~ [[:space:]] ]]; then
+            echo "Could not determine a valid package version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Package rootless and rootful releases
+        run: >-
+          python3 scripts/package_debs.py
+          --version "${{ steps.version.outputs.value }}"
+          --build-dir build
+          --output-dir release-packages
+
+      - name: Upload build packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: x8A4-${{ steps.version.outputs.value }}-debs
+          path: release-packages/*.deb
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v8
+        with:
+          name: x8A4-${{ needs.build.outputs.version }}-debs
+          path: release-packages
+
+      - name: Publish packages to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" release-packages/*.deb --clobber

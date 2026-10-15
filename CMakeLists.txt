@@ -1,12 +1,24 @@
 cmake_minimum_required(VERSION 3.27)
-project(x8A4 C)
-
 set(CMAKE_C_STANDARD 17)
-string(COMPARE EQUAL "${CMAKE_OSX_ARCHITECTURES}" "" arch_not_set)
-if(NOT DEFINED CMAKE_OSX_ARCHITECTURES OR arch_not_set)
-    set(CMAKE_OSX_ARCHITECTURES arm64 arm64e)
+if(NOT CMAKE_OSX_ARCHITECTURES)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;arm64e")
 endif()
-set(CMAKE_OSX_DEPLOYMENT_TARGET "")
+if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0")
+endif()
+
+find_program(XCRUN xcrun)
+if(XCRUN AND NOT CMAKE_OSX_SYSROOT)
+    execute_process(COMMAND ${XCRUN} --sdk iphoneos --show-sdk-path
+            OUTPUT_VARIABLE IOS_SDK_PATH
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(IOS_SDK_PATH)
+        set(CMAKE_OSX_SYSROOT "${IOS_SDK_PATH}" CACHE PATH "iOS SDK sysroot" FORCE)
+    endif()
+endif()
+
+project(x8A4 C)
 
 find_program(LDID ldid2)
 if(NOT LDID)
@@ -14,14 +26,6 @@ if(NOT LDID)
     if(NOT LDID)
         message(FATAL_ERROR "Please install Procursus ldid before building! (https://github.com/ProcursusTeam/ldid)")
     endif()
-endif()
-
-find_program(XCRUN xcrun)
-if(XCRUN)
-execute_process(COMMAND ${XCRUN} --sdk iphoneos --show-sdk-path
-        OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif()
 
 find_program(GIT git)
@@ -36,8 +40,14 @@ else()
     set(VERSION_COMMIT_COUNT "0")
     set(VERSION_COMMIT_SHA "unknown")
 endif()
+if(NOT VERSION_COMMIT_COUNT)
+    set(VERSION_COMMIT_COUNT "0")
+endif()
+if(NOT VERSION_COMMIT_SHA)
+    set(VERSION_COMMIT_SHA "unknown")
+endif()
 
-add_library(x8A4 STATIC SHARED x8A4.c
+add_library(x8A4 SHARED x8A4.c
         Logger/logger.c
         Include/x8A4/Logger/logger.h
         Kernel/slide.c
@@ -58,8 +68,16 @@ add_library(x8A4 STATIC SHARED x8A4.c
         Include/x8A4/Kernel/nvram.h)
 
 target_include_directories(x8A4 PRIVATE
+        "${CMAKE_SOURCE_DIR}/Internal"
         "${CMAKE_SOURCE_DIR}/Include/choma"
         "${CMAKE_SOURCE_DIR}/Include")
+
+# Keep the shipped library's public surface limited to the read-only x8A4 API.
+# Dead stripping also drops unused writer helpers from the bundled archives.
+target_compile_options(x8A4 PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(x8A4 PRIVATE
+        "LINKER:-dead_strip"
+        "LINKER:-exported_symbols_list,${CMAKE_SOURCE_DIR}/x8A4.exports")
 
 set(RPATH "/var/jb/usr/lib")
 set(RPATH2 "/usr/lib")
@@ -73,7 +91,10 @@ set_target_properties(x8A4
         COMPILE_FLAGS "-Wall -Werror")
 
 set(SOVERSION 1)
-set_target_properties(x8A4 PROPERTIES SOVERSION ${SOVERSION})
+set_target_properties(x8A4 PROPERTIES
+        SOVERSION ${SOVERSION}
+        MACOSX_RPATH ON
+        INSTALL_NAME_DIR "@rpath")
 
 
 target_link_directories(x8A4 PRIVATE
@@ -85,7 +106,7 @@ target_link_libraries(x8A4
         krw
         compression
         choma
-        XPF)
+        xpf)
 
 add_executable(x8A4_CLI x8A4_CLI.c)
 
@@ -117,6 +138,10 @@ target_link_directories(x8A4_CLI PRIVATE
 
 target_link_libraries(x8A4_CLI
         "x8A4")
+
+install(TARGETS x8A4 x8A4_CLI
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin)
 
 add_custom_command(TARGET x8A4 POST_BUILD
         COMMAND ${LDID} -S -Hsha256 -Cadhoc ${CMAKE_CURRENT_BINARY_DIR}/libx8A4.${SOVERSION}.dylib

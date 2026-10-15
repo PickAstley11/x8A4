@@ -13,13 +13,14 @@
  */
 
 /* Include headers */
-#include <libkrw.h>
+#include <x8A4/Kernel/krw_read.h>
 #include <x8A4/Kernel/kernel.h>
 #include <x8A4/Kernel/offsets.h>
 #include <x8A4/Kernel/nvram.h>
 #include <x8A4/Kernel/osobject.h>
 #include <x8A4/Logger/logger.h>
 #include <x8A4/x8A4.h>
+#include <x8A4_state.h>
 
 /* Cached Variables */
 struct nvram_key *nvram_keys_cached;
@@ -142,7 +143,7 @@ uint8_t *get_nvram_entry_bytes(uint64_t nvram_dict, const char *key, enum os_typ
     x8A4_log_error("Failed to get entry address from nvram dict!\n", "");
     return NULL;
   }
-  if (!*out_size) {
+  if (!*out_size || *out_size > 1024 * 1024) {
     x8A4_log_error("Failed to entry size from nvram dict!\n", "");
     return NULL;
   }
@@ -152,6 +153,10 @@ uint8_t *get_nvram_entry_bytes(uint64_t nvram_dict, const char *key, enum os_typ
     x8A4_log_debug("out_size: 0x%08X\n", *out_size);
   }
   uint8_t *entry_bytes = (uint8_t *)calloc(1, *out_size + 1);
+  if (!entry_bytes) {
+    x8A4_log_error("Failed to allocate memory for NVRAM entry bytes!\n", "");
+    return NULL;
+  }
   int ret = kread(entry_addr, entry_bytes, *out_size);
   if (ret) {
     if (entry_bytes)
@@ -162,56 +167,4 @@ uint8_t *get_nvram_entry_bytes(uint64_t nvram_dict, const char *key, enum os_typ
   gc_cached[gc_count_cached++] = (uint64_t)entry_bytes;
   x8A4_log_debug_error("gc_cached[gc_count_cached++]: %d val: 0x%016llX\n", __LINE__, entry_bytes);
   return entry_bytes;
-}
-
-/**
- * @brief           Set nvram entry bytes for matching key
- * @param[in]       nvram_dict
- * @param[in]       key
- * @param[in]       entry_bytes
- * @param[in]       size
- * @param[in]       type
- * @return          Pointer to the modified nvram entry bytes
- */
-int set_nvram_entry_bytes(uint64_t nvram_dict, const char *key,
-                          uint8_t *entry_bytes, uint32_t size, enum os_type type) {
-  x8A4_log_debug("key: %s bytes: 0x%llX\n", key, (uint64_t)entry_bytes);
-  if(key && strstr(key, kBootNoncePropertyKey) == 0) {
-    x8A4_log("WARNING! YOU ARE CALLING SET NVRAM FUNCTION THIS IS "
-                   "DANGEROUS AND COULD BOOTLOOP!\n",
-                   "");
-    x8A4_log("Enter) Exit\n", "");
-    x8A4_log("1) Continue\n", "");
-    char msg[100];
-    if (fgets(msg, sizeof msg, stdin)) {
-      if (strcmp(msg, "1\n") != 0) {
-        return -1;
-      }
-    }
-  }
-  x8A4_log_debug("Setting nvram entry(%s) bytes(%p:%u) type(%d)\n", key, entry_bytes, size, type);
-  uint64_t entry_addr = 0;
-  for(int i = 0; i < 3; i++) {
-    const char *key_tmp = get_nvram_key(key, i);
-    entry_addr = get_entry_from_os_dict(nvram_dict, type, key_tmp, NULL);
-    if(entry_addr) {
-      break;
-    }
-  }
-  if (!entry_addr) {
-    x8A4_log_error("Failed to set nvram bytes, entry %s missing from nvram!\n", key);
-    return -1;
-  }
-  uint64_t read_test = 0;
-  int ret = kread(entry_addr, &read_test, 8);
-  if (ret) {
-    x8A4_log_error("!kread (%d)\n", ret);
-    return -1;
-  }
-  ret = kwrite(entry_bytes, entry_addr, size);
-  if (ret) {
-    x8A4_log_error("!kwrite (%d)\n", ret);
-    return -1;
-  }
-  return 0;
 }

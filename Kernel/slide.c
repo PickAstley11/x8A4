@@ -19,6 +19,7 @@
 #include <x8A4/Kernel/kpf.h>
 #include <x8A4/Logger/logger.h>
 #include <x8A4/x8A4.h>
+#include <x8A4_state.h>
 
 /* Cached Variables */
 uint64_t slide_cached = 0;

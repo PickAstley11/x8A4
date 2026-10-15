@@ -1,76 +1,52 @@
-//
-// Created by cryptic on 4/14/24.
-//
+// x8A4 read-only command line interface.
 
-/* Include headers */
 #include <x8A4/x8A4.h>
-#include <x8A4/Logger/logger.h>
 #include <getopt.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-/* Structure Variables */
-static struct option x8A4_options[] = {
-    {"help", 0, NULL, 'h'},
-    {"verbose", 0, NULL, 'v'},
-    {"print-all", 0, NULL, 'a'},
-    {"get-cryptex-seed", 0, NULL, 'x'},
-    {"get-cryptex-nonce", 0, NULL, 't'},
-    {"get-apnonce-generator", 0, NULL, 'g'},
-    {"get-apnonce", 0, NULL, 'n'},
-    {"set-apnonce-generator", required_argument, NULL, 's'},
-    {"clear-apnonce-generator", 0, NULL, 'c'},
+static const struct option x8A4_options[] = {
+    {"help", no_argument, NULL, 'h'},
+    {"verbose", no_argument, NULL, 'v'},
+    {"print-all", no_argument, NULL, 'a'},
+    {"get-cryptex-seed", no_argument, NULL, 'x'},
+    {"get-cryptex-nonce", no_argument, NULL, 't'},
+    {"get-apnonce-generator", no_argument, NULL, 'g'},
+    {"get-apnonce", no_argument, NULL, 'n'},
     {"get-accel-key", required_argument, NULL, 'k'},
-    {"get-accel-keys", 0, NULL, 'l'},
-    {"get-nonce-seeds", 0, NULL, 'd'},
-    {"set-cryptex-nonce", required_argument, NULL, 'z'},
+    {"get-accel-keys", no_argument, NULL, 'l'},
+    {"get-nonce-seeds", no_argument, NULL, 'd'},
     {NULL, 0, NULL, 0}
 };
 
-/* Functions */
-/**
- * @brief           CLI print program help
- */
-void x8A4_help(const char *cmd) {
-  char *command = (char *)cmd;
-  if(!command) {
-    command = "x8A4";
+static void x8A4_help(const char *cmd) {
+  if (!cmd) {
+    cmd = "x8A4";
   }
-  x8A4_log("%s: An all-in-one tool for firmware nonces, seeds, and downgrade support\n", x8A4_version());
-  x8A4_log("Usage: %s [OPTIONS]\n", command);
-  x8A4_log("\n%sOptions:\n", "");
-  x8A4_log("  %s, %s\t\t\t\t\t\t%s\n", "-h", "--help", "Shows this help message");
-  x8A4_log("  %s, %s\t\t\t\t\t\t%s\n", "-v", "--verbose", "Enables this tool's verbose mode");
-  x8A4_log("  %s, %s\t\t\t\t\t%s\n", "-a", "--print-all", "Dumps and prints everything :)");
-  x8A4_log("\n%sOptions:\n", "Cryptex ");
-  x8A4_log("  %s, %s\t\t\t\t%s\n", "-x", "--get-cryptex-seed", "Gets the current Cryptex1 boot seed from nvram");
-  x8A4_log("  %s, %s\t\t\t\t%s\n", "-t", "--get-cryptex-nonce", "Calculates the current Cryptex1 boot nonce");
-  x8A4_log("\n%sOptions:\n", "APNonce ");
-  x8A4_log("  %s, %s\t\t\t\t%s\n", "-g", "--get-apnonce-generator", "Gets the current APNonce generator from nvram");
-  x8A4_log("  %s, %s\t\t\t\t\t%s\n", "-n", "--get-apnonce", "Calculates the current APNonce");
-  x8A4_log("  %s, %s\t\t\t\t%s\n", "-s", "--set-apnonce-generator", "Set a specified APNonce generator in nvram");
-  x8A4_log("  %s, %s\t\t\t\t%s\n", "-c", "--clear-apnonce-generator", "Clears the current APNonce generator from nvram");
-  x8A4_log("\n%sOptions:\n", "Encryption Key ");
-  x8A4_log("  %s, %s\t\t\t\t\t%s\n", "-k", "--get-accel-key", "Gets a specified IOAESAccelerator encryption key from kernel via its ID");
-  x8A4_log("  %s, %s\t\t\t\t\t%s\n", "-l", "--get-accel-keys", "Dumps all of the IOAESAccelerator encryption keys from kernel");
-  x8A4_log("\n%sOptions:\n", "Seed ");
-  x8A4_log("  %s, %s\t\t\t\t\t%s\n", "-d", "--get-nonce-seeds", "Dumps all of the nonce seeds domains/nonce slots from nvram");
-  x8A4_log("\n%sOptions:\n", "Secret Menu ");
-  x8A4_log("  %s, %s\t\t\t\t%s\n", "-z", "--set-cryptex-nonce", "Sets a specified Cryptex1 boot seed in nvram(DANGEROUS: BOOTLOOP!)");
+  printf("%s: Read-only firmware nonce and seed inspection tool\n", x8A4_version());
+  printf("Usage: %s [OPTIONS]\n\n", cmd);
+  printf("  -h, --help                  Show this help message\n");
+  printf("  -v, --verbose               Enable verbose logging\n");
+  printf("  -a, --print-all             Print all supported values\n");
+  printf("  -x, --get-cryptex-seed      Read the current Cryptex1 seed\n");
+  printf("  -t, --get-cryptex-nonce     Calculate the current Cryptex1 nonce\n");
+  printf("  -g, --get-apnonce-generator Read the current APNonce generator\n");
+  printf("  -n, --get-apnonce           Calculate the current APNonce\n");
+  printf("  -k, --get-accel-key ID      Read one IOAESAccelerator key by ID\n");
+  printf("  -l, --get-accel-keys        Read all IOAESAccelerator keys\n");
+  printf("  -d, --get-nonce-seeds       Read nonce seed domains/slots\n");
 }
 
-/**
- * @brief           CLI set program verbose
- */
-void set_verbose() {
-  x8A4_cli_set_verbose();
+static int initialize(void) {
+  if (x8A4_init()) {
+    fprintf(stderr, "Read-only inspection initialization failed.\n");
+    return -1;
+  }
+  return 0;
 }
 
-/**
- * @brief           CLI call all program getters
- */
-void print_all() {
-  if(x8A4_init()) {
-    return;
-  }
+static void print_all(void) {
+  if (initialize()) return;
   x8A4_cli_get_cryptex_seed();
   x8A4_cli_get_cryptex_nonce();
   x8A4_cli_get_apnonce_generator();
@@ -79,157 +55,48 @@ void print_all() {
   x8A4_cli_get_nonce_seeds();
 }
 
-/**
- * @brief           CLI get cryptex seed
- */
-void get_cryptex_seed(void) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_get_cryptex_seed();
-}
-
-/**
- * @brief           CLI get cryptex nonce
- */
-void get_cryptex_nonce(void) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_get_cryptex_nonce();
-}
-
-/**
- * @brief           CLI get apnonce generator
- */
-void get_apnonce_generator(void) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_get_apnonce_generator();
-}
-
-/**
- * @brief           CLI get apnonce
- */
-void get_apnonce(void) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_get_apnonce();
-}
-
-/**
- * @brief           CLI set apnonce generator
- * @param[in]       new_generator
- */
-void set_apnonce_generator(const char *new_generator) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_set_apnonce_generator(new_generator);
-}
-
-/**
- * @brief           CLI clear apnonce generator
- */
-void clear_apnonce_generator() {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_clear_apnonce_generator();
-}
-
-/**
- * @brief           CLI get IOAESAccelerator keys
- * @param[in]       chosen_key
- */
-void get_accel_keys(uint32_t chosen_key) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_get_accel_keys(chosen_key);
-}
-
-void get_nonce_seeds(void) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_get_nonce_seeds();
-}
-
-/**
- * @brief           CLI set cryptex seed
- * @param[in]       new_seed
- */
-void set_cryptex_seed(const char *new_seed) {
-  if(x8A4_init()) {
-    return;
-  }
-  x8A4_cli_set_cryptex_seed(new_seed);
-}
-
-/**
- * @brief           CLI main
- * @param[in]       argc
- * @param[in]       argv
- */
 int main(int argc, char **argv) {
-  int x8A4_opt = 0;
-  int x8A4_opt_index = 0;
-  while((x8A4_opt = getopt_long(argc, (char* const *)argv, "hvaxtgns:ck:ldz:", x8A4_options, &x8A4_opt_index)) > 0) {
-    switch(x8A4_opt) {
+  int option;
+  int option_index = 0;
+  while ((option = getopt_long(argc, argv, "hvaxtgnk:ld", x8A4_options,
+                               &option_index)) != -1) {
+    switch (option) {
       case 'h':
         x8A4_help(argv[0]);
         break;
       case 'v':
-        set_verbose();
+        x8A4_cli_enable_verbose();
         break;
       case 'a':
         print_all();
         break;
       case 'x':
-        get_cryptex_seed();
+        if (!initialize()) x8A4_cli_get_cryptex_seed();
         break;
       case 't':
-        get_cryptex_nonce();
+        if (!initialize()) x8A4_cli_get_cryptex_nonce();
         break;
       case 'g':
-        get_apnonce_generator();
+        if (!initialize()) x8A4_cli_get_apnonce_generator();
         break;
       case 'n':
-        get_apnonce();
-        break;
-      case 's':
-        if(optarg) {
-          set_apnonce_generator(optarg);
-        }
-        break;
-      case 'c':
-        clear_apnonce_generator();
+        if (!initialize()) x8A4_cli_get_apnonce();
         break;
       case 'k':
-        if(optarg) {
-          get_accel_keys(strtoul(optarg, NULL, 0));
-        }
+        if (!initialize()) x8A4_cli_get_accel_keys((uint32_t)strtoul(optarg, NULL, 0));
         break;
       case 'l':
-        get_accel_keys(0);
+        if (!initialize()) x8A4_cli_get_accel_keys(0);
         break;
       case 'd':
-        get_nonce_seeds();
-        break;
-      case 'z':
-        if(optarg) {
-          set_cryptex_seed(optarg);
-        }
+        if (!initialize()) x8A4_cli_get_nonce_seeds();
         break;
       default:
         x8A4_help(argv[0]);
-        return -1;
+        return 2;
     }
   }
-  if(argc == 1) {
+  if (argc == 1) {
     x8A4_help(argv[0]);
   }
   return 0;

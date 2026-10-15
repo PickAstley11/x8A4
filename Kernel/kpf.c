@@ -17,6 +17,7 @@
 #include <x8A4/Kernel/kpf.h>
 #include <x8A4/Logger/logger.h>
 #include <x8A4/x8A4.h>
+#include <x8A4_state.h>
 
 /* Variables */
 PFSection *apple_image4_fileset_sections[3] = {0};

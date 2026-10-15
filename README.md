@@ -1,65 +1,83 @@
-# x8A4
+# x8A4 (read-only build)
 
----
-## About
-An all-in-one tool for firmware nonces, seeds, and downgrade support
-<br>
-Get apnonce and generator, cryptex seed and cryptex nonce, dump nonce entanglement keys, set nonces and seeds for the purpose of restoring with saved blobs.
+x8A4 reads firmware nonce, generator, Cryptex seed, and IOAESAccelerator key
+data on supported jailbroken Apple devices. It does not provide commands to
+change NVRAM, kernel memory, APNonce state, files, or system settings.
 
----
+## Read-only boundary
+
+The CLI and library API expose no device-state mutation operation. The NVRAM
+kernel-write routine, DeviceTree NVRAM property setter, NVRAM sync/delete-marker code, and
+AppleMobileApNonce generate/clear calls have been removed. The CLI accepts only
+the read options below; former mutation flags are not recognized. The library
+link stub imports only `kbase` and `kread` from `libkrw`, and the build restricts
+the exported ABI to the read-only x8A4 API.
+
+The tool reads kernel memory to inspect values and needs root plus the
+jailbreak-provided `libkrw` runtime. x8A4 calls only `kbase` and `kread`; the
+external `libkrw` implementation and jailbreak plugin are supplied by the
+jailbreak and are outside this source audit. The bundled `libxpf.a` and
+`libchoma.a` are also prebuilt dependencies. The linker dead-strips unused
+sections and exports only the x8A4 read API. GitHub Actions checks the linked
+arm64 and arm64e binaries for kernel-write, filesystem-write, and device-state
+mutation imports, and verifies the library exports match the allowlist.
+
+Read results can contain sensitive values. In particular, `-k`, `-l`, and `-d`
+print accelerator keys or nonce seed data to the terminal.
+
 ## Supported devices
-* **Full jailbreak REQUIRED!**
-* - x8A4 depends on full kernel read/write which is provided 
-to the libkrw library by the jailbreak as a plugin
-* **iOS/iPadOS 15.0-18.4**
-* **RUN AS ROOT!**
 
----
-## Credits
-| User     | Repo                 | Description                                                                      |
-|----------|----------------------|----------------------------------------------------------------------------------|
-| [0x7FF]  | [dimentio]           | Thanks 0x7FF for making the original project x8A4 is based off of                |
-| [stek29] | [nvram]              | Thanks to stek29 for figuring out the modern nvram unlock method                 |
-| [stek29] | [nonce entanglement] | Thanks to stek29 for figuring out how apnonce works on a12+ (nonce entanglement) |
----
+- Full jailbreak with a working kernel read provider
+- 64-bit arm64/arm64e devices, including A9 through A17 Pro
+- iOS/iPadOS 14.0–18.7.x (Darwin 20–24)
+- Run as root
 
-## Demo
+Kernel offsets are resolved from the running kernel. A Darwin 24 fallback is
+used for `task.itk_space` when the bundled XPF resolver cannot find it. Runtime
+Debian packages depend on the externally supplied `libkrw0` 1.1.2 or newer.
 
-<div><img src="Resources/x8A4_1.png" width="388" alt="x8A4_1" /><img src="Resources/x8A4_2.png" width="388" alt="x8A4_3" /></div>
-<div><img src="Resources/x8A4_3.png" width="1388" alt="x8A4_3" /></div>
+## Build and release packages
 
----
-## Research
-[Original research](https://gist.github.com/Cryptiiiic/bd01fac6e8b8ee0c33f71c92cf91ce3d)
-<br>
-[iOS 16 Downgrading](https://gist.github.com/Cryptiiiic/b82133ac290070939189e1377dc3ac85)
+The GitHub Actions workflow builds universal arm64/arm64e binaries and creates
+rootless (`iphoneos-arm64`) and rootful (`iphoneos-arm`) Debian packages for
+each version tag (`v*`). Tag builds attach the four x8A4 runtime/development
+packages to the matching GitHub release. Pull requests and branch builds
+compile and upload packages as workflow artifacts.
 
----
+Local builds require Xcode with the iOS SDK, CMake 3.27 or later, and `ldid2`
+(or `ldid`). Debian packages additionally require `dpkg-deb`.
+
+```sh
+cmake -S . -B build \
+  -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
+  -DCMAKE_OSX_ARCHITECTURES="arm64;arm64e" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+  -DRELEASE=ON
+cmake --build build --parallel
+```
+
 ## Usage
 
-| option (short)   | option (long)   | description                                                                                                                                             |
-|------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Options:         |
-| ` -h `           | ` --help `      | Shows this help message                                                                                                                    |
-| ` -v `           | ` --verbose `   | Enables this tool's verbose mode                                                                                                                    |
-| ` -v `           | ` --verbose `   | Enables this tool's verbose mode                                                                                                                    |
-| ` -a `           | ` --print-all ` | Dumps and prints everything :)                                                                                                                    |
-| Cryptex Options: |
-| ` -x `           | ` --get-cryptex-seed ` | Gets the current Cryptex1 boot seed from nvram                                                                                                                    |
-| ` -t `           | ` --get-cryptex-nonce ` | Calculates the current Cryptex1 boot nonce                                                                                                                    |
-| APNonce Options: |
-| ` -g `           | ` --get-apnonce-generator ` | Gets the current APNonce generator from nvram                                                                                                                    |
-| ` -n `           | ` --get-apnonce ` | Calculates the current APNonce                                                                                                                    |
-| ` -s `           | ` --set-apnonce-generator ` | Set a specified APNonce generator in nvram                                                                                                                    |
-| ` -c `           | ` --clear-apnonce-generator ` | Clears the current APNonce generator from nvram                                                                                                                    |
-| Encryption Key Options: |
-| ` -k `           | ` --get-accel-key ` | Gets a specified IOAESAccelerator encryption key from kernel via its ID                                                                                                                    |
-| ` -l `           | ` --get-accel-keys ` | Dumps all of the IOAESAccelerator encryption keys from kernel                                                                                                                   |
-| Seed Options: |
-| ` -d `           | ` --get-nonce-seeds ` | Dumps all of the nonce seeds domains/nonce slots from nvram                                                                                                                   |
-| Secret Menu Options: |
-| ` -z `           | ` --set-cryptex-nonce ` | Sets a specified Cryptex1 boot seed in nvram(DANGEROUS: BOOTLOOP!)                                                                                                                   |
----
+| Short | Long | Read operation |
+|---|---|---|
+| `-h` | `--help` | Show help |
+| `-v` | `--verbose` | Enable verbose logging for this process |
+| `-a` | `--print-all` | Print all supported values |
+| `-x` | `--get-cryptex-seed` | Read the current Cryptex1 seed |
+| `-t` | `--get-cryptex-nonce` | Calculate the current Cryptex1 nonce |
+| `-g` | `--get-apnonce-generator` | Read the current APNonce generator |
+| `-n` | `--get-apnonce` | Calculate the current APNonce |
+| `-k ID` | `--get-accel-key ID` | Read one IOAESAccelerator key |
+| `-l` | `--get-accel-keys` | Read IOAESAccelerator keys |
+| `-d` | `--get-nonce-seeds` | Read nonce seed domains/slots |
+
+## Credits
+
+| User | Project | Description |
+|---|---|---|
+| [0x7FF] | [dimentio] | Original project x8A4 is based on |
+| [stek29] | [nvram] | Research on modern NVRAM access |
+| [stek29] | [nonce entanglement] | Research on APNonce generation |
 
 [0x7FF]: https://github.com/0x7FF
 [stek29]: https://github.com/stek29

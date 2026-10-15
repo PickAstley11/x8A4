@@ -37,5 +37,6 @@ uint64_t get_os_dict_from_os_object(uint64_t os_object);
 uint32_t get_os_dict_size(uint64_t dict);
 uint32_t extract_os_size(uint32_t *size);
 uint64_t get_entry_from_os_dict(uint64_t dict, enum os_type entry_type, const char *entry_key, uint32_t *out_size);
+int os_dict_contains_key(uint64_t dict, const char *entry_key);
 
 #endif // X8A4_OSOBJECT_H
