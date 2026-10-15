@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.27)
 set(CMAKE_C_STANDARD 17)
 if(NOT CMAKE_OSX_ARCHITECTURES)
-    set(CMAKE_OSX_ARCHITECTURES "arm64;arm64e")
+    # Dopamine's supported libkrw runtime is arm64 on affected devices.
+    # Avoid an arm64e slice that dyld would prefer but cannot link to libkrw.
+    set(CMAKE_OSX_ARCHITECTURES "arm64")
 endif()
 if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0")

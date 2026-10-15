@@ -20,7 +20,7 @@ if grep -REn "$source_forbidden" "$project_dir/Kernel" "$project_dir/Registry" \
   exit 1
 fi
 
-for arch in arm64 arm64e; do
+for arch in arm64; do
   for binary in "$library" "$cli"; do
     imports="$(nm -arch "$arch" -u "$binary")"
     if printf '%s\n' "$imports" | grep -E "$forbidden"; then
@@ -38,4 +38,4 @@ for arch in arm64 arm64e; do
   fi
 done
 
-echo "Read-only symbol audit passed for arm64 and arm64e."
+echo "Read-only symbol audit passed for arm64."

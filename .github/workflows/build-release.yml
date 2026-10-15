@@ -24,23 +24,29 @@ jobs:
       - name: Install build tools
         run: brew install cmake dpkg ldid-procursus
 
-      - name: Configure universal iOS build
+      - name: Configure arm64 iOS build
         run: >-
           cmake -S . -B build
           -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-          -DCMAKE_OSX_ARCHITECTURES="arm64;arm64e"
+          -DCMAKE_OSX_ARCHITECTURES=arm64
           -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
           -DRELEASE=ON
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Verify universal binaries
+      - name: Verify arm64 binaries
         run: |
           lipo build/libx8A4.1.dylib -verify_arch arm64
-          lipo build/libx8A4.1.dylib -verify_arch arm64e
           lipo build/x8A4_CLI -verify_arch arm64
-          lipo build/x8A4_CLI -verify_arch arm64e
+          if lipo build/libx8A4.1.dylib -verify_arch arm64e >/dev/null 2>&1; then
+            echo "Unexpected arm64e slice in libx8A4.1.dylib" >&2
+            exit 1
+          fi
+          if lipo build/x8A4_CLI -verify_arch arm64e >/dev/null 2>&1; then
+            echo "Unexpected arm64e slice in x8A4_CLI" >&2
+            exit 1
+          fi
 
       - name: Verify read-only imports and library exports
         run: scripts/check_read_only_symbols.sh build/libx8A4.1.dylib build/x8A4_CLI

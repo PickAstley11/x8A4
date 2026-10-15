@@ -1,10 +1,10 @@
 --- !tapi-tbd-v2
-archs:           [ arm64, arm64e ]
+archs:           [ arm64 ]
 platform:        ios
 flags:           [ not_app_extension_safe ]
 install-name:    '@rpath/libkrw.0.dylib'
 current-version: 1.1.2
 exports:
-  - archs:           [ arm64, arm64e ]
+  - archs:           [ arm64 ]
     symbols:         [ _kbase, _kread ]
 ...

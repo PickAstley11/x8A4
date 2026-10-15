@@ -19,7 +19,7 @@ external `libkrw` implementation and jailbreak plugin are supplied by the
 jailbreak and are outside this source audit. The bundled `libxpf.a` and
 `libchoma.a` are also prebuilt dependencies. The linker dead-strips unused
 sections and exports only the x8A4 read API. GitHub Actions checks the linked
-arm64 and arm64e binaries for kernel-write, filesystem-write, and device-state
+arm64 binaries for kernel-write, filesystem-write, and device-state
 mutation imports, and verifies the library exports match the allowlist.
 
 Read results can contain sensitive values. In particular, `-k`, `-l`, and `-d`
@@ -28,7 +28,7 @@ print accelerator keys or nonce seed data to the terminal.
 ## Supported devices
 
 - Full jailbreak with a working kernel read provider
-- 64-bit arm64/arm64e devices, including A9 through A17 Pro
+- 64-bit devices from A9 through A17 Pro, using the arm64 userspace ABI
 - iOS/iPadOS 14.0–18.7.x (Darwin 20–24)
 - Run as root
 
@@ -43,11 +43,12 @@ supplied `libkrw0` 1.1.2 or newer.
 
 ## Build and release packages
 
-The GitHub Actions workflow builds universal arm64/arm64e binaries and creates
-rootless (`iphoneos-arm64`) and rootful (`iphoneos-arm`) Debian packages for
-each version tag (`v*`). Tag builds attach the four x8A4 runtime/development
-packages to the matching GitHub release. Pull requests and branch builds
-compile and upload packages as workflow artifacts.
+The GitHub Actions workflow builds arm64 binaries and creates rootless
+(`iphoneos-arm64`) and rootful (`iphoneos-arm`) Debian packages for each version
+tag (`v*`). The arm64 build matches Dopamine installations whose `libkrw`
+runtime contains arm64 but not arm64e. Tag builds attach the four x8A4
+runtime/development packages to the matching GitHub release. Pull requests and
+branch builds compile and upload packages as workflow artifacts.
 
 Local builds require Xcode with the iOS SDK, CMake 3.27 or later, and `ldid2`
 (or `ldid`). Debian packages additionally require `dpkg-deb`.
@@ -55,7 +56,7 @@ Local builds require Xcode with the iOS SDK, CMake 3.27 or later, and `ldid2`
 ```sh
 cmake -S . -B build \
   -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
-  -DCMAKE_OSX_ARCHITECTURES="arm64;arm64e" \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
   -DRELEASE=ON
 cmake --build build --parallel
