@@ -32,9 +32,11 @@ print accelerator keys or nonce seed data to the terminal.
 - iOS/iPadOS 14.0–18.7.x (Darwin 20–24)
 - Run as root
 
-Kernel offsets are resolved from the running kernel. A Darwin 24 fallback is
-used for `task.itk_space` when the bundled XPF resolver cannot find it. Runtime
-Debian packages depend on the externally supplied `libkrw0` 1.1.2 or newer.
+Kernel offsets are resolved from the running kernel. If the bundled XPF resolver
+cannot find `task.itk_space`, a `0x318` fallback is used only for the verified
+iPhone 11 Pro iOS 18.1 kernel (T8030, Darwin 24.1.0, XNU `11215.42.1~1`). Other
+kernels fail closed rather than using an unverified offset. Runtime Debian
+packages depend on the externally supplied `libkrw0` 1.1.2 or newer.
 
 ## Build and release packages
 

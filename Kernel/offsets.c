@@ -149,11 +149,18 @@ int offsets_init(void) {
   if (!koffsets_cached->itk_space) {
     koffsets_cached->itk_space =
         xpf_item_resolve("kernelStruct.task.itk_space");
-    /* XPF in this release does not resolve task.itk_space on every Darwin 24 kernel. */
+    /*
+     * Verified from Apple's iPhone12,3 iOS 18.1 (22B83) kernelcache with
+     * XPF: T8030, Darwin 24.1.0, XNU 11215.42.1~1 resolves itk_space to
+     * 0x318. Keep this fallback specific to that kernel identity; unknown
+     * Darwin 24 kernels must fail closed if the bundled XPF cannot resolve it.
+     */
     if (!koffsets_cached->itk_space &&
-        strncmp(gXPF.darwinVersion, "24.", 3) == 0) {
+        strcmp(gXPF.darwinVersion, "24.1.0") == 0 &&
+        strcmp(gXPF.xnuBuild, "11215.42.1~1") == 0 &&
+        strstr(gXPF.kernelVersionString, "RELEASE_ARM64_T8030") != NULL) {
       koffsets_cached->itk_space = 0x318;
-      x8A4_log_debug("Using Darwin 24 task.itk_space fallback: 0x%llX\n",
+      x8A4_log_debug("Using verified iPhone 11 Pro iOS 18.1 task.itk_space fallback: 0x%llX\n",
                      koffsets_cached->itk_space);
     }
     if (!koffsets_cached->itk_space) {
