@@ -10,8 +10,8 @@ library=$1
 cli=$2
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 exports_file="$project_dir/x8A4.exports"
-forbidden='_(kwrite|physwrite|kcall|kmalloc|kdealloc|write|writev|pwrite|pwritev|fwrite|unlink|remove|rmdir|rename|truncate|ftruncate|chmod|fchmod|chown|fchown|fsync|fdatasync|mkdir|symlink|link|mount|system|popen|execve|setenv)([^[:alnum:]_]|$)|IORegistryEntrySet|IOConnectCall|IOServiceOpen'
-source_forbidden='(^|[^[:alnum:]_])(kwrite|physwrite|kcall|kmalloc|kdealloc|io_generate_apnonce|io_clear_apnonce|set_nvram_entry|x8A4_sync_nvram|x8A4_set_boot_nonce|x8A4_set_nonce_seeds|x8A4_set_apnonce_generator|x8A4_clear_apnonce_generator)([^[:alnum:]_]|$)|IORegistryEntrySet|IOConnectCall|set-apnonce-generator|clear-apnonce-generator|set-cryptex-nonce'
+forbidden='_(kwrite|physwrite|kcall|kalloc|kfree|kmap|kmalloc|kdealloc|write|writev|pwrite|pwritev|fwrite|unlink|remove|rmdir|rename|truncate|ftruncate|chmod|fchmod|chown|fchown|fsync|fdatasync|mkdir|symlink|link|mount|system|popen|execve|setenv|dlopen|dlsym)([^[:alnum:]_]|$)|IORegistryEntrySet|IOConnectCall|IOServiceOpen'
+source_forbidden='(^|[^[:alnum:]_])(kwrite|physwrite|kcall|kalloc|kfree|kmap|kmalloc|kdealloc|io_generate_apnonce|io_clear_apnonce|set_nvram_entry|x8A4_sync_nvram|x8A4_set_boot_nonce|x8A4_set_nonce_seeds|x8A4_set_apnonce_generator|x8A4_clear_apnonce_generator)([^[:alnum:]_]|$)|IORegistryEntrySet|IOConnectCall|set-apnonce-generator|clear-apnonce-generator|set-cryptex-nonce'
 
 if grep -REn "$source_forbidden" "$project_dir/Kernel" "$project_dir/Registry" \
     "$project_dir/Services" "$project_dir/Logger" "$project_dir/Include/x8A4" \

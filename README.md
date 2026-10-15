@@ -22,6 +22,15 @@ sections and exports only the x8A4 read API. GitHub Actions checks the linked
 arm64 binaries for kernel-write, filesystem-write, and device-state
 mutation imports, and verifies the library exports match the allowlist.
 
+The CLI entitlement plist sets
+`com.apple.security.exception.iokit-user-client-class` to
+`IOSurfaceRootUserClient` because the Dopamine `libkrw` read provider requires
+it to initialize. That permission lets
+the external provider initialize its IOSurface-backed primitives; x8A4 itself
+only links the `kbase` and `kread` entry points and does not call kernel write,
+allocation, mapping, or call primitives. CI audits the x8A4 binaries, not the
+external `libkrw` provider.
+
 Read results can contain sensitive values. In particular, `-k`, `-l`, and `-d`
 print accelerator keys or nonce seed data to the terminal.
 

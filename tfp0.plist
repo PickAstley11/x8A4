@@ -12,5 +12,8 @@
 	<true/>
 	<key>com.apple.private.security.no-container</key>
 	<true/>
+	<!-- Required by the Dopamine libkrw IOSurface-backed read provider. -->
+	<key>com.apple.security.exception.iokit-user-client-class</key>
+	<string>IOSurfaceRootUserClient</string>
 </dict>
 </plist>

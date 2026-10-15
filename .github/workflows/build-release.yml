@@ -51,6 +51,20 @@ jobs:
       - name: Verify read-only imports and library exports
         run: scripts/check_read_only_symbols.sh build/libx8A4.1.dylib build/x8A4_CLI
 
+      - name: Verify required read-provider entitlement
+        run: |
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+
+          with Path("tfp0.plist").open("rb") as entitlements_file:
+              entitlements = plistlib.load(entitlements_file)
+          allowed = entitlements.get("com.apple.security.exception.iokit-user-client-class")
+          if allowed != "IOSurfaceRootUserClient":
+              raise SystemExit("Unexpected IOSurface user-client entitlements")
+          print("Only IOSurfaceRootUserClient is allowed by this entitlement key.")
+          PY
+
       - name: Determine package version
         id: version
         shell: bash
