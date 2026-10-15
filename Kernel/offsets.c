@@ -23,6 +23,18 @@
 /* Structure Variables */
 struct kernel_offsets *koffsets_cached;
 
+static bool xpf_offset_is_valid(uint64_t value) {
+  return value != 0 && value != UINT64_MAX;
+}
+
+static bool is_verified_iphone11pro_ios18_1_kernel(void) {
+  return gXPF.darwinVersion && gXPF.xnuBuild && gXPF.kernelVersionString &&
+         strcmp(gXPF.darwinVersion, "24.1.0") == 0 &&
+         strcmp(gXPF.xnuBuild, "11215.42.1~1") == 0 &&
+         gXPF.kernelBase == 0xfffffff007004000ULL &&
+         strstr(gXPF.kernelVersionString, "RELEASE_ARM64_T8030") != NULL;
+}
+
 /* Functions */
 /**
  * @brief          Init kernel offsets
@@ -141,7 +153,7 @@ int offsets_init(void) {
   koffsets_cached->os_list[OS_STRING] = koffsets_cached->os_string;
   if (!koffsets_cached->t1sz_boot) {
     koffsets_cached->t1sz_boot = xpf_item_resolve("kernelConstant.T1SZ_BOOT");
-    if (!koffsets_cached->t1sz_boot) {
+    if (!xpf_offset_is_valid(koffsets_cached->t1sz_boot)) {
       x8A4_log_error("Failed to find kernel T1SZ_BOOT!\n", "");
       return -1;
     }
@@ -155,15 +167,13 @@ int offsets_init(void) {
      * 0x318. Keep this fallback specific to that kernel identity; unknown
      * Darwin 24 kernels must fail closed if the bundled XPF cannot resolve it.
      */
-    if (!koffsets_cached->itk_space &&
-        strcmp(gXPF.darwinVersion, "24.1.0") == 0 &&
-        strcmp(gXPF.xnuBuild, "11215.42.1~1") == 0 &&
-        strstr(gXPF.kernelVersionString, "RELEASE_ARM64_T8030") != NULL) {
+    if (!xpf_offset_is_valid(koffsets_cached->itk_space) &&
+        is_verified_iphone11pro_ios18_1_kernel()) {
       koffsets_cached->itk_space = 0x318;
       x8A4_log_debug("Using verified iPhone 11 Pro iOS 18.1 task.itk_space fallback: 0x%llX\n",
                      koffsets_cached->itk_space);
     }
-    if (!koffsets_cached->itk_space) {
+    if (!xpf_offset_is_valid(koffsets_cached->itk_space)) {
       x8A4_log_error("Failed to find kernel task itk_space!\n", "");
       return -1;
     }
@@ -171,15 +181,29 @@ int offsets_init(void) {
   if (!koffsets_cached->proc_struct_size) {
     koffsets_cached->proc_struct_size =
         xpf_item_resolve("kernelStruct.proc.struct_size");
-    if (!koffsets_cached->proc_struct_size) {
+    if (!xpf_offset_is_valid(koffsets_cached->proc_struct_size)) {
       x8A4_log_error("Failed to find kernel proc_struct_size!\n", "");
       return -1;
     }
   }
   if (!koffsets_cached->all_proc) {
     koffsets_cached->all_proc = xpf_item_resolve("kernelSymbol.allproc");
-    if (!koffsets_cached->all_proc) {
-      x8A4_log_error("Failed to find kernel proc all_proc!\n", "");
+    /*
+     * Verified against Apple's iPhone12,3 iOS 18.1 (22B83) kernelcache:
+     * current XPF resolves allproc to 0xfffffff00a41c848, which is
+     * 0x03418848 from this kernel's unslid base. The bundled XPF returns
+     * UINT64_MAX for this unresolved symbol, so constrain the fallback to
+     * this exact kernel identity and fail closed everywhere else.
+     */
+    if (!xpf_offset_is_valid(koffsets_cached->all_proc) &&
+        is_verified_iphone11pro_ios18_1_kernel()) {
+      koffsets_cached->all_proc = gXPF.kernelBase + 0x03418848ULL;
+      x8A4_log_debug("Using verified iPhone 11 Pro iOS 18.1 allproc fallback: 0x%016llX\n",
+                     koffsets_cached->all_proc);
+    }
+    if (!xpf_offset_is_valid(koffsets_cached->all_proc)) {
+      x8A4_log_error("Failed to resolve kernel proc allproc (0x%016llX); refusing kernel traversal.\n",
+                     koffsets_cached->all_proc);
       return -1;
     }
   }

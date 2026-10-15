@@ -33,10 +33,13 @@ print accelerator keys or nonce seed data to the terminal.
 - Run as root
 
 Kernel offsets are resolved from the running kernel. If the bundled XPF resolver
-cannot find `task.itk_space`, a `0x318` fallback is used only for the verified
-iPhone 11 Pro iOS 18.1 kernel (T8030, Darwin 24.1.0, XNU `11215.42.1~1`). Other
-kernels fail closed rather than using an unverified offset. Runtime Debian
-packages depend on the externally supplied `libkrw0` 1.1.2 or newer.
+cannot find `task.itk_space` or `allproc`, verified fallbacks are used only for
+the iPhone 11 Pro iOS 18.1 kernel (T8030, Darwin 24.1.0, XNU `11215.42.1~1`,
+kernel base `0xfffffff007004000`). The `itk_space` offset is `0x318`; `allproc`
+is at `0xfffffff00a41c848` (`kernel base + 0x03418848`). Invalid XPF results,
+including `0xffffffffffffffff`, are rejected. Other kernels fail closed rather
+than using unverified offsets. Runtime Debian packages depend on the externally
+supplied `libkrw0` 1.1.2 or newer.
 
 ## Build and release packages
 

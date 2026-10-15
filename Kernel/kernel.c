@@ -181,13 +181,19 @@ uint64_t get_our_proc(void) {
     return our_proc_cached;
   }
   if (!koffsets_cached || !koffsets_cached->all_proc ||
+      koffsets_cached->all_proc == UINT64_MAX ||
       !koffsets_cached->t1sz_boot) {
     x8A4_log_error("Kernel process offsets are not initialized!\n", "");
     return 0;
   }
   pid_t our_pid = getpid();
   pid_t pid = 0;
-  uint64_t proc = koffsets_cached->all_proc + get_slide();
+  uint64_t slide = get_slide();
+  if (koffsets_cached->all_proc > UINT64_MAX - slide) {
+    x8A4_log_error("Kernel allproc address overflows after applying the slide!\n", "");
+    return 0;
+  }
+  uint64_t proc = koffsets_cached->all_proc + slide;
   /* Bound traversal so a damaged list cannot hang x8A4 indefinitely. */
   for (uint32_t visited = 0; visited < 0x10000; visited++) {
     uint64_t next_proc = 0;
