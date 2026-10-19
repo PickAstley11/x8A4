@@ -1,5 +1,8 @@
 # x8A4 (read-only build)
 
+THIS FORKS COMMITS HAVE BEEN VIBECODED WITH AI TO FIX AN ISSUE I COULDNT, IF YOU HATE AI DONT USE THIS.
+Before I kept getting an error on my iPhone 11 Pro jailbroken with Dopamine on ios 18.1 and this fork fixed it.
+
 x8A4 reads firmware nonce, generator, Cryptex seed, and IOAESAccelerator key
 data on supported jailbroken Apple devices. It does not provide commands to
 change NVRAM, kernel memory, APNonce state, files, or system settings.
