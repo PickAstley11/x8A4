@@ -28,11 +28,18 @@ static bool xpf_offset_is_valid(uint64_t value) {
 }
 
 static bool is_verified_iphone11pro_ios18_1_kernel(void) {
-  return gXPF.darwinVersion && gXPF.xnuBuild && gXPF.kernelVersionString &&
-         strcmp(gXPF.darwinVersion, "24.1.0") == 0 &&
-         strcmp(gXPF.xnuBuild, "11215.42.1~1") == 0 &&
-         gXPF.kernelBase == 0xfffffff007004000ULL &&
-         strstr(gXPF.kernelVersionString, "RELEASE_ARM64_T8030") != NULL;
+  if (!gXPF.darwinVersion || !gXPF.kernelVersionString) {
+    return false;
+  }
+
+  const bool darwin_matches = strcmp(gXPF.darwinVersion, "24.1.0") == 0;
+  const bool xnu_matches = !gXPF.xnuBuild || strcmp(gXPF.xnuBuild, "11215.42.1~1") == 0;
+  const bool kernel_base_matches = gXPF.kernelBase == 0xfffffff007004000ULL;
+  const bool kernel_name_matches =
+      strstr(gXPF.kernelVersionString, "RELEASE_ARM64_T8030") != NULL ||
+      strstr(gXPF.kernelVersionString, "T8030") != NULL;
+
+  return darwin_matches && xnu_matches && kernel_base_matches && kernel_name_matches;
 }
 
 /* Functions */
@@ -144,10 +151,14 @@ int offsets_init(void) {
     koffsets_cached->ipc_port_kobject_is_iomachport = 0x1;
   }
   if (ios_1800) {
-
+    koffsets_cached->proc_pid = 0x60;
+    koffsets_cached->proc_task = 0x10;
+    koffsets_cached->proc_list_next = 0x0;
   }
   if (ios_1810) {
-
+    koffsets_cached->proc_pid = 0x60;
+    koffsets_cached->proc_task = 0x10;
+    koffsets_cached->proc_list_next = 0x0;
   }
   koffsets_cached->os_list[OS_DATA] = koffsets_cached->os_data;
   koffsets_cached->os_list[OS_STRING] = koffsets_cached->os_string;
